@@ -1,0 +1,12 @@
+build/
+.gradle/
+.idea/
+*.class
+out/
+*.iml
+*.ipr
+*.iws
+.kotlin/
+local.properties
+demo/build/
+demo/.gradle/
