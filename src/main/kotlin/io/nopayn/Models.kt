@@ -21,6 +21,28 @@ public data class NoPaynConfig(
 }
 
 /**
+ * A line item within an order.
+ *
+ * @property type    Line type: "physical", "shipping_fee", "discount", etc.
+ * @property name    Human-readable item name.
+ * @property quantity  Number of units.
+ * @property amount  Amount per unit in smallest currency unit (e.g. cents).
+ * @property currency  ISO 4217 currency code.
+ * @property vatPercentage  VAT percentage (e.g. 2100 for 21.00%), or null if not applicable.
+ * @property merchantOrderLineId  Your internal line item reference.
+ */
+@Serializable
+public data class OrderLine(
+    val type: String,
+    val name: String,
+    val quantity: Int,
+    val amount: Int,
+    val currency: String,
+    @SerialName("vat_percentage") val vatPercentage: Int? = null,
+    @SerialName("merchant_order_line_id") val merchantOrderLineId: String? = null,
+)
+
+/**
  * Parameters for creating a new order via `POST /v1/orders/`.
  */
 public data class CreateOrderParams(
@@ -44,6 +66,12 @@ public data class CreateOrderParams(
     val paymentMethods: List<String>? = null,
     /** ISO 8601 duration before the payment link expires (e.g. PT30M). */
     val expirationPeriod: String? = null,
+    /** Order line items. */
+    val orderLines: List<OrderLine>? = null,
+    /** Customer information as a map of key-value pairs. */
+    val customer: Map<String, String>? = null,
+    /** Pre-created transactions for direct payment method flow. */
+    val transactions: List<Map<String, Any>>? = null,
 )
 
 @Serializable

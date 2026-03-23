@@ -81,6 +81,44 @@ public class NoPaynClient @JvmOverloads constructor(
         return json.decodeFromJsonElement(data)
     }
 
+    /**
+     * Capture a previously authorized transaction via
+     * `POST /v1/orders/{orderId}/transactions/{transactionId}/captures/`.
+     * Returns the updated transaction.
+     */
+    public suspend fun captureTransaction(orderId: String, transactionId: String): Transaction {
+        val encodedOrder = URLEncoder.encode(orderId, Charsets.UTF_8)
+        val encodedTxn = URLEncoder.encode(transactionId, Charsets.UTF_8)
+        val data = request("POST", "/v1/orders/$encodedOrder/transactions/$encodedTxn/captures/")
+        return json.decodeFromJsonElement(data)
+    }
+
+    /**
+     * Void (cancel) a previously authorized transaction via
+     * `POST /v1/orders/{orderId}/transactions/{transactionId}/voids/amount/`.
+     *
+     * @param orderId       The NoPayn order UUID.
+     * @param transactionId The transaction UUID to void.
+     * @param amount        Amount to void in smallest currency unit.
+     * @param description   Optional reason for the void.
+     * @return The updated transaction.
+     */
+    public suspend fun voidTransaction(
+        orderId: String,
+        transactionId: String,
+        amount: Int,
+        description: String = "",
+    ): Transaction {
+        val encodedOrder = URLEncoder.encode(orderId, Charsets.UTF_8)
+        val encodedTxn = URLEncoder.encode(transactionId, Charsets.UTF_8)
+        val body = buildJsonObject {
+            put("amount", amount)
+            put("description", description)
+        }
+        val data = request("POST", "/v1/orders/$encodedOrder/transactions/$encodedTxn/voids/amount/", body)
+        return json.decodeFromJsonElement(data)
+    }
+
     // ── HPP Redirect ─────────────────────────────────────────────────────────
 
     /**
@@ -223,6 +261,44 @@ public class NoPaynClient @JvmOverloads constructor(
             }
         }
         params.expirationPeriod?.let { put("expiration_period", it) }
+        params.orderLines?.let { lines ->
+            putJsonArray("order_lines") {
+                lines.forEach { line ->
+                    addJsonObject {
+                        put("type", line.type)
+                        put("name", line.name)
+                        put("quantity", line.quantity)
+                        put("amount", line.amount)
+                        put("currency", line.currency)
+                        line.vatPercentage?.let { put("vat_percentage", it) }
+                        line.merchantOrderLineId?.let { put("merchant_order_line_id", it) }
+                    }
+                }
+            }
+        }
+        params.customer?.let { customerMap ->
+            putJsonObject("customer") {
+                customerMap.forEach { (k, v) -> put(k, v) }
+            }
+        }
+        params.transactions?.let { txnList ->
+            putJsonArray("transactions") {
+                txnList.forEach { txnMap ->
+                    addJsonObject {
+                        txnMap.forEach { (k, v) ->
+                            when (v) {
+                                is String -> put(k, v)
+                                is Int -> put(k, v)
+                                is Long -> put(k, v)
+                                is Boolean -> put(k, v)
+                                is Double -> put(k, v)
+                                else -> put(k, v.toString())
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

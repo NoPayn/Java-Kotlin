@@ -2,6 +2,7 @@ package io.nopayn
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
+import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -207,5 +208,177 @@ class ClientTest {
         val sig = NoPaynSignature.generate("test-key-abc", 500, "GBP", "order-2")
         assertTrue(client.verifySignature(500, "GBP", "order-2", sig))
         assertFalse(client.verifySignature(500, "GBP", "order-2", "tampered"))
+    }
+
+    // ── captureTransaction ───────────────────────────────────────────────────
+
+    @Test
+    fun `captureTransaction deserializes response`() = runTest {
+        val txnJson = """
+            {
+              "id": "txn-uuid-001",
+              "amount": 1295,
+              "currency": "EUR",
+              "payment_method": "credit-card",
+              "status": "captured",
+              "created": "2026-01-15T10:00:00Z",
+              "modified": "2026-01-15T10:05:00Z"
+            }
+        """.trimIndent()
+
+        val client = NoPaynClient(config, mockHttpClient(txnJson))
+        val txn = client.captureTransaction("order-uuid-001", "txn-uuid-001")
+
+        assertEquals("txn-uuid-001", txn.id)
+        assertEquals(1295, txn.amount)
+        assertEquals("EUR", txn.currency)
+        assertEquals("credit-card", txn.paymentMethod)
+        assertEquals("captured", txn.status)
+    }
+
+    // ── voidTransaction ──────────────────────────────────────────────────────
+
+    @Test
+    fun `voidTransaction deserializes response`() = runTest {
+        val txnJson = """
+            {
+              "id": "txn-uuid-002",
+              "amount": 500,
+              "currency": "EUR",
+              "payment_method": "credit-card",
+              "status": "voided",
+              "created": "2026-01-15T10:00:00Z",
+              "modified": "2026-01-15T10:06:00Z"
+            }
+        """.trimIndent()
+
+        val client = NoPaynClient(config, mockHttpClient(txnJson))
+        val txn = client.voidTransaction("order-uuid-001", "txn-uuid-002", 500, "Customer request")
+
+        assertEquals("txn-uuid-002", txn.id)
+        assertEquals(500, txn.amount)
+        assertEquals("voided", txn.status)
+    }
+
+    @Test
+    fun `voidTransaction works without description`() = runTest {
+        val txnJson = """
+            {
+              "id": "txn-uuid-003",
+              "amount": 300,
+              "currency": "GBP",
+              "status": "voided",
+              "created": "2026-01-15T10:00:00Z",
+              "modified": "2026-01-15T10:07:00Z"
+            }
+        """.trimIndent()
+
+        val client = NoPaynClient(config, mockHttpClient(txnJson))
+        val txn = client.voidTransaction("order-uuid-001", "txn-uuid-003", 300)
+
+        assertEquals("txn-uuid-003", txn.id)
+        assertEquals("voided", txn.status)
+    }
+
+    // ── createOrder with orderLines ──────────────────────────────────────────
+
+    @Test
+    fun `createOrder with orderLines deserializes response`() = runTest {
+        val client = NoPaynClient(config, mockHttpClient(sampleOrderJson))
+        val order = client.createOrder(
+            CreateOrderParams(
+                amount = 1295,
+                currency = "EUR",
+                description = "Test order",
+                orderLines = listOf(
+                    OrderLine(
+                        type = "physical",
+                        name = "Widget",
+                        quantity = 2,
+                        amount = 500,
+                        currency = "EUR",
+                        vatPercentage = 2100,
+                        merchantOrderLineId = "LINE-001",
+                    ),
+                    OrderLine(
+                        type = "shipping_fee",
+                        name = "Standard shipping",
+                        quantity = 1,
+                        amount = 295,
+                        currency = "EUR",
+                    ),
+                ),
+                customer = mapOf("email" to "test@example.com", "first_name" to "Jane"),
+            )
+        )
+
+        assertEquals("order-uuid-001", order.id)
+        assertEquals(1295, order.amount)
+        assertEquals("EUR", order.currency)
+    }
+
+    // ── OrderLine serialization ──────────────────────────────────────────────
+
+    @Test
+    fun `OrderLine serializes to JSON with snake_case fields`() {
+        val line = OrderLine(
+            type = "physical",
+            name = "Test Item",
+            quantity = 3,
+            amount = 999,
+            currency = "EUR",
+            vatPercentage = 2100,
+            merchantOrderLineId = "ITEM-42",
+        )
+
+        val jsonFormat = Json { encodeDefaults = true }
+        val jsonStr = jsonFormat.encodeToString(line)
+        val obj = Json.parseToJsonElement(jsonStr).jsonObject
+
+        assertEquals("physical", obj["type"]?.jsonPrimitive?.content)
+        assertEquals("Test Item", obj["name"]?.jsonPrimitive?.content)
+        assertEquals(3, obj["quantity"]?.jsonPrimitive?.int)
+        assertEquals(999, obj["amount"]?.jsonPrimitive?.int)
+        assertEquals("EUR", obj["currency"]?.jsonPrimitive?.content)
+        assertEquals(2100, obj["vat_percentage"]?.jsonPrimitive?.int)
+        assertEquals("ITEM-42", obj["merchant_order_line_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `OrderLine serializes without optional fields when null`() {
+        val line = OrderLine(
+            type = "discount",
+            name = "10% off",
+            quantity = 1,
+            amount = -100,
+            currency = "EUR",
+        )
+
+        val jsonFormat = Json { encodeDefaults = false }
+        val jsonStr = jsonFormat.encodeToString(line)
+        val obj = Json.parseToJsonElement(jsonStr).jsonObject
+
+        assertEquals("discount", obj["type"]?.jsonPrimitive?.content)
+        assertNull(obj["vat_percentage"])
+        assertNull(obj["merchant_order_line_id"])
+    }
+
+    @Test
+    fun `OrderLine round-trip serialization`() {
+        val original = OrderLine(
+            type = "physical",
+            name = "Round Trip Item",
+            quantity = 5,
+            amount = 1250,
+            currency = "GBP",
+            vatPercentage = 2000,
+            merchantOrderLineId = "RT-001",
+        )
+
+        val jsonFormat = Json { encodeDefaults = true }
+        val jsonStr = jsonFormat.encodeToString(original)
+        val restored = jsonFormat.decodeFromString<OrderLine>(jsonStr)
+
+        assertEquals(original, restored)
     }
 }
