@@ -27,10 +27,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build
-        run: gradle build --no-daemon
+        run: ./gradlew build --no-daemon
 
       - name: Test
-        run: gradle test --no-daemon
+        run: ./gradlew test --no-daemon
 
       - name: Build Docker image
         run: docker build -f demo/Dockerfile -t nopayn-demo:test .
